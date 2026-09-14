@@ -5,7 +5,17 @@ defmodule Toolbox.Workers.HexpmWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{meta: %{"cron" => true}}) do
+    sync_started_at = DateTime.utc_now() |> DateTime.truncate(:second)
+
     Toolbox.Tasks.Hexpm.run()
+
+    sync_started_at
+    |> Toolbox.Packages.list_packages_names_not_synced_since()
+    |> Enum.map(
+      &Toolbox.Workers.HexpmWorker.new(%{"action" => "delete_if_missing", "name" => &1})
+    )
+    |> Enum.chunk_every(500)
+    |> Enum.each(&Oban.insert_all/1)
 
     :ok
   end
@@ -77,6 +87,24 @@ defmodule Toolbox.Workers.HexpmWorker do
     end
   end
 
+  def perform(%Oban.Job{args: %{"action" => "delete_if_missing", "name" => name}}) do
+    with {:ok, package} <- get_package_by_name(name),
+         {:ok, :missing} <- check_package_on_hexpm(name),
+         {:ok, _package} <- Toolbox.Packages.delete_package(package) do
+      Logger.warning("Deleted package #{name}, no longer available on hexpm")
+
+      :ok
+    else
+      {:skip, reason} ->
+        Logger.warning(reason)
+
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp get_package_by_name(name) do
     case Toolbox.Packages.get_package_by_name(name) do
       %Toolbox.Package{} = package -> {:ok, package}
@@ -111,6 +139,22 @@ defmodule Toolbox.Workers.HexpmWorker do
 
       {:ok, %{status: server_error}} when server_error in 500..599 ->
         {:error, "failed to fetch hexpm owners for #{name} with status #{server_error}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp check_package_on_hexpm(name) do
+    case Toolbox.Hexpm.get_package(name) do
+      {:ok, %{status: 404}} ->
+        {:ok, :missing}
+
+      {:ok, %{status: 200}} ->
+        {:skip, "package #{name} still exists on hexpm, skipping deletion"}
+
+      {:ok, %{status: server_error}} when server_error in 500..599 ->
+        {:error, "failed to check hexpm package #{name} with status #{server_error}"}
 
       {:error, reason} ->
         {:error, reason}
