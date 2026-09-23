@@ -164,12 +164,12 @@ defmodule Toolbox.Packages do
     |> Repo.all()
   end
 
-  def list_packages_names_not_synced_since(datetime) do
+  def list_packages_not_synced_since(datetime) do
     from(p in Package,
       left_join: s in HexpmSnapshot.Latest,
       on: s.package_id == p.id,
       where: is_nil(s.package_id) or s.inserted_at < ^datetime,
-      select: p.name
+      select: %{id: p.id, name: p.name}
     )
     |> Repo.all()
   end

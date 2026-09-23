@@ -68,11 +68,13 @@ config :toolbox, Oban,
      crontab: [
        {"0 5 * * WED,SUN", Toolbox.Workers.HexpmWorker},
        {"0 6 * * WED,SUN", Toolbox.Workers.SCMWorker},
-       {"0 7 * * WED,SUN", Toolbox.Workers.CategoryWorker}
+       {"0 7 * * WED,SUN", Toolbox.Workers.CategoryWorker},
+       {"0 8 * * WED,SUN", Toolbox.Workers.HexpmCleanupWorker}
      ]}
   ],
   queues: [
     hexpm: [limit: 1],
+    hexpm_cleanup: [limit: 1],
     category: [limit: 1],
     # Use 750ms second dispatch cooldown to prevent Github's rate limit
     # We are doing 2 request in each job

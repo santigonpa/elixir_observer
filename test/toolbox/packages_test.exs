@@ -3,7 +3,7 @@ defmodule Toolbox.PackagesTest do
 
   alias Toolbox.Packages
 
-  describe "list_packages_names_not_synced_since/1" do
+  describe "list_packages_not_synced_since/1" do
     test "includes packages whose latest snapshot is older than the given datetime" do
       {:ok, stale_package} = create(:package)
       {:ok, stale_snapshot} = create(:hexpm_snapshot, package_id: stale_package.id)
@@ -19,19 +19,18 @@ defmodule Toolbox.PackagesTest do
       {:ok, fresh_package} = create(:package)
       {:ok, _fresh_snapshot} = create(:hexpm_snapshot, package_id: fresh_package.id)
 
-      names = Packages.list_packages_names_not_synced_since(cutoff)
+      packages = Packages.list_packages_not_synced_since(cutoff)
 
-      assert stale_package.name in names
-      refute fresh_package.name in names
+      assert %{id: stale_package.id, name: stale_package.name} in packages
+      refute Enum.any?(packages, &(&1.id == fresh_package.id))
     end
 
     test "includes packages with no snapshot at all" do
       {:ok, package} = create(:package)
 
-      names =
-        Packages.list_packages_names_not_synced_since(DateTime.utc_now())
+      packages = Packages.list_packages_not_synced_since(DateTime.utc_now())
 
-      assert package.name in names
+      assert %{id: package.id, name: package.name} in packages
     end
   end
 
