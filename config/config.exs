@@ -74,7 +74,6 @@ config :toolbox, Oban,
   ],
   queues: [
     hexpm: [limit: 1],
-    hexpm_cleanup: [limit: 1],
     category: [limit: 1],
     # Use 750ms second dispatch cooldown to prevent Github's rate limit
     # We are doing 2 request in each job

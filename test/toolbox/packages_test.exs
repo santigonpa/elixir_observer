@@ -9,12 +9,12 @@ defmodule Toolbox.PackagesTest do
       {:ok, stale_snapshot} = create(:hexpm_snapshot, package_id: stale_package.id)
 
       one_hour_ago =
-        DateTime.utc_now() |> DateTime.add(-1, :hour) |> DateTime.truncate(:second)
+        DateTime.utc_now() |> DateTime.add(-1, :hour)
 
       from(hs in Toolbox.HexpmSnapshot, where: hs.id == ^stale_snapshot.id)
       |> Repo.update_all(set: [inserted_at: one_hour_ago])
 
-      cutoff = DateTime.utc_now() |> DateTime.truncate(:second)
+      cutoff = DateTime.utc_now()
 
       {:ok, fresh_package} = create(:package)
       {:ok, _fresh_snapshot} = create(:hexpm_snapshot, package_id: fresh_package.id)

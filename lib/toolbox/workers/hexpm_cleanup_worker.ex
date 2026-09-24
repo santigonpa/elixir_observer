@@ -1,5 +1,5 @@
 defmodule Toolbox.Workers.HexpmCleanupWorker do
-  use Oban.Worker, queue: :hexpm_cleanup, max_attempts: 3
+  use Oban.Worker, queue: :hexpm, max_attempts: 3
 
   require Logger
 
@@ -11,7 +11,7 @@ defmodule Toolbox.Workers.HexpmCleanupWorker do
       nil ->
         :ok
 
-      last_sync_at ->
+      %Oban.Job{inserted_at: last_sync_at} ->
         last_sync_at
         |> Toolbox.Packages.list_packages_not_synced_since()
         |> Enum.map(&Toolbox.Workers.HexpmCleanupWorker.new/1)
@@ -45,14 +45,9 @@ defmodule Toolbox.Workers.HexpmCleanupWorker do
       where: j.state == "completed",
       where: fragment("? @> ?", j.meta, ^%{"cron" => true}),
       order_by: [desc: j.inserted_at],
-      limit: 1,
-      select: j.inserted_at
+      limit: 1
     )
     |> Toolbox.Repo.one()
-    |> case do
-      nil -> nil
-      inserted_at -> DateTime.truncate(inserted_at, :second)
-    end
   end
 
   defp check_package_on_hexpm(name) do
