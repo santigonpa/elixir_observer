@@ -3,6 +3,9 @@ defmodule Toolbox.Workers.HexpmWorker do
 
   require Logger
 
+  @page_size 5
+  @window_days 90
+
   @impl Oban.Worker
   def perform(%Oban.Job{meta: %{"cron" => true}}) do
     Toolbox.Tasks.Hexpm.run()
@@ -77,6 +80,33 @@ defmodule Toolbox.Workers.HexpmWorker do
     end
   end
 
+  def perform(%Oban.Job{
+        args: %{"action" => "get_version_downloads", "name" => name, "offset" => offset}
+      }) do
+    with {:ok, package} <- get_package_by_name(name),
+         {:ok, entries} <-
+           fetch_version_downloads_page(name, package.latest_hexpm_snapshot.data, offset) do
+      Phoenix.PubSub.broadcast(
+        Toolbox.PubSub,
+        "package_live:#{name}",
+        %{
+          action: :refresh_version_downloads,
+          offset: offset,
+          version_downloads: entries
+        }
+      )
+
+      :ok
+    else
+      {:skip, reason} ->
+        Logger.warning(reason)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp get_package_by_name(name) do
     case Toolbox.Packages.get_package_by_name(name) do
       %Toolbox.Package{} = package -> {:ok, package}
@@ -114,6 +144,59 @@ defmodule Toolbox.Workers.HexpmWorker do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp get_version_downloads(name, version, after_date, before_date) do
+    case Toolbox.Hexpm.get_package_version_downloads(name, version, after_date, before_date) do
+      {:ok, %{status: 200, body: %{"downloads" => downloads}}} when is_integer(downloads) ->
+        {:ok, downloads}
+
+      {:ok, %{status: status}} when status in [400, 404] ->
+        {:ok, 0}
+
+      {:ok, %{status: server_error}} when server_error in 500..599 ->
+        {:error,
+         "failed to fetch hexpm downloads for #{name} version #{version} with status #{server_error}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp fetch_version_downloads_page(name, snapshot_data, offset) do
+    before_date = Date.add(Date.utc_today(), -1)
+    after_date = Date.add(Date.utc_today(), -@window_days)
+
+    (snapshot_data["releases"] || [])
+    |> Toolbox.Hexpm.stable_versions_desc()
+    |> Enum.slice(offset, @page_size)
+    |> Task.async_stream(
+      fn version -> {version, get_version_downloads(name, version, after_date, before_date)} end,
+      max_concurrency: @page_size,
+      ordered: true,
+      timeout: :infinity
+    )
+    |> Enum.map(fn {:ok, result} -> result end)
+    |> collect_page()
+  end
+
+  defp collect_page(results) do
+    error =
+      Enum.find_value(results, fn
+        {_version, {:error, reason}} -> {:error, reason}
+        _ -> nil
+      end)
+
+    if error do
+      error
+    else
+      entries =
+        Enum.map(results, fn {version, {:ok, downloads}} ->
+          %{version: version, downloads: downloads}
+        end)
+
+      {:ok, entries}
     end
   end
 end
